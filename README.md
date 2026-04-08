@@ -1,6 +1,6 @@
 <h5>BACKGROUND</h5>
 In the video game, Zoo Tycoon (2001), image assets (including animals, foliage, UI icons and so on) are stored as ZT files. These are binary files lacking an extension (often simply named "n" - meaning north, referring to in-game orientation - or something like that). Their colours are defined in associated .pal files; these are palette files that store up the 256 colors (so every individual image in Zoo Tycoon is limited to 256 colors).
-
+<ul>
 These files are cumbersome and difficult to edit effectively. The purpose of this tool is to convert ZT files (and their .pal files) into PNGs for easier editing in other graphic editing software programmes (e.g. GIMP). Crucially, it also allows PNG files to be converted into a ZT file with an associated .pal.
 
 <h5>REQUIREMENTS</h5>

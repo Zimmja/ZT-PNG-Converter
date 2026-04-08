@@ -608,7 +608,7 @@ async function promptPngToZt1Settings(settings) {
     const png = settings.pngToZt1 || {};
     const inputBasename = await ask(
       rl,
-      'Input PNG base name (without .png)',
+      'Input PNG base name',
       settings.pngToZt1InputBasename || DEFAULT_PNG_TO_ZT1_INPUT_BASENAME
     );
     if (!isSafeBasename(inputBasename)) {

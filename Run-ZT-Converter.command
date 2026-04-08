@@ -21,6 +21,20 @@ prompt_then_close_terminal() {
   close_terminal_window
 }
 
+# After a conversion run: Enter (or any key other than Space) closes; Space returns to the menu.
+# IFS= is required: with the default IFS, read discards a lone Space and _zt_key is empty (same as Enter).
+prompt_restart_or_close_terminal() {
+  echo ""
+  echo "Press Enter to close, or Space to return to the menu."
+  IFS= read -r -n1 _zt_key
+  echo ""
+  if [[ "$_zt_key" == ' ' ]]; then
+    return 0
+  fi
+  close_terminal_window
+  exit 0
+}
+
 if ! command -v node >/dev/null 2>&1; then
   osascript -e 'display alert "Node.js not found" message "Install Node.js from https://nodejs.org/ and try again. It must be available in your terminal PATH." as critical' >/dev/null 2>&1 || true
   echo "Node.js not found. Install from https://nodejs.org/"
@@ -31,8 +45,8 @@ fi
 while true; do
   echo ""
   echo "ZT PNG Converter"
-  echo "  1  PNG to ZT1"
-  echo "  2  ZT1 to PNG"
+  echo "  1  ZT1 to PNG"
+  echo "  2  PNG to ZT1"
   echo "  Q  Quit"
   echo ""
   read -rp "Enter choice (1, 2, or Q): " zt_choice
@@ -40,13 +54,13 @@ while true; do
   case "$zt_choice_lc" in
     1)
       export ZT_CONVERTER_FROM_LAUNCHER=1
-      node "$DIR/src/pngToZt1Assets.js"
-      break
+      node "$DIR/src/zt1GraphicToPng.js"
+      prompt_restart_or_close_terminal
       ;;
     2)
       export ZT_CONVERTER_FROM_LAUNCHER=1
-      node "$DIR/src/zt1GraphicToPng.js"
-      break
+      node "$DIR/src/pngToZt1Assets.js"
+      prompt_restart_or_close_terminal
       ;;
     q)
       close_terminal_window
@@ -57,6 +71,3 @@ while true; do
       ;;
   esac
 done
-
-echo
-prompt_then_close_terminal

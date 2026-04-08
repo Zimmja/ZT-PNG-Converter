@@ -13,14 +13,14 @@ if errorlevel 1 (
 :menu
 echo.
 echo ZT PNG Converter
-echo   1  PNG to ZT1
-echo   2  ZT1 to PNG
+echo   1  ZT1 to PNG
+echo   2  PNG to ZT1
 echo   Q  Quit
 echo.
 set "c="
 set /p "c=Enter choice (1, 2, or Q): "
-if /i "%c%"=="1" goto run_png_to_zt1
-if /i "%c%"=="2" goto run_zt1_to_png
+if /i "%c%"=="1" goto run_zt1_to_png
+if /i "%c%"=="2" goto run_png_to_zt1
 if /i "%c%"=="q" exit /b 0
 goto menu
 
@@ -36,5 +36,8 @@ goto done
 
 :done
 echo.
-set /p "_zt_done=Press Enter to close... "
+echo Press Enter to close, or Space to return to the menu.
+powershell -NoProfile -Command "$k = [Console]::ReadKey($true); if ($k.KeyChar -eq ' ') { exit 1 } else { exit 0 }"
+rem Match exit code 1 only (Space): "if errorlevel 1" means >= 1, so narrow with "if not errorlevel 2".
+if errorlevel 1 if not errorlevel 2 goto menu
 exit /b 0

@@ -66,7 +66,7 @@ async function resolveOutputBasenameInteractive(settings) {
       settings.zt1ToPngOutputBasename || DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME;
     const line = await ask(
       rl,
-      'Specify a name for the output PNG file (without .png)',
+      'Specify a name for the output PNG file',
       current
     );
     if (!isSafeBasename(line)) {
