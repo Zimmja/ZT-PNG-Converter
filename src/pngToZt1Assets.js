@@ -19,6 +19,9 @@ const {
 } = require(path.join(__dirname, 'converterLocalSettings.js'));
 const { createRl, ask } = require(path.join(__dirname, 'converterReadline.js'));
 const { userError, formatCliError } = require(path.join(__dirname, 'cliError.js'));
+const {
+  writeColorCompressionReport,
+} = require(path.join(__dirname, 'colorCompressionReport.js'));
 
 // Project root (parent of src/)
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -661,8 +664,8 @@ async function promptPngToZt1Settings(settings) {
     console.log('  1  Animation        (X=93,  Y=63)');
     console.log('  2  Adoption menu    (X=22,  Y=16)');
     console.log('  3  Facts menu       (X=89,  Y=97)');
-    console.log('  4  Other            (enter X and Y manually; not saved)');
-    const placementChoice = await ask(rl, 'Enter 1–4', '2');
+    console.log('  4  Other            (enter X and Y manually)');
+    const placementChoice = await ask(rl, 'Enter 1-4', '2');
     let offsetX;
     let offsetY;
     if (PLACEMENT_PRESETS[placementChoice]) {
@@ -753,7 +756,7 @@ async function main() {
   const pngBytes = fs.readFileSync(sourcePng);
   const { width, height, rgba } = decodePngRgba(pngBytes);
 
-  let colourCompressions = 0;
+  const colourCompressionRounds = [];
   while (opaqueExceedsPaletteLimit(width, height, rgba)) {
     const merged = mergeClosestPairOfOpaqueColours(
       width,
@@ -766,8 +769,9 @@ async function main() {
         'This image uses too many solid colours for ZT1 (max 255 besides black). Reduce colours in your art, or merge similar shades in your editor.'
       );
     }
-    colourCompressions += 1;
+    colourCompressionRounds.push(merged);
   }
+  const colourCompressions = colourCompressionRounds.length;
 
   const { palette, indexGrid } = buildPaletteFromRgba(width, height, rgba);
 
@@ -832,13 +836,36 @@ async function main() {
     [frameBuffer]
   );
 
+  console.log('');
   console.log('Input PNG:', sourcePng);
   console.log('Dimensions:', `${width}×${height}`);
   console.log('Palette colours:', palette.length);
   console.log('Embedded palette path:', embeddedPalettePath);
   console.log('Wrote:', outputPalPath);
   console.log('Wrote:', outputGraphicPath);
+
+  console.log('');
   console.log(`Completed with ${colourCompressions} colour compressions`);
+
+  if (isLauncherMode() && colourCompressionRounds.length > 0) {
+    const rl = createRl();
+    try {
+      const answer = await ask(
+        rl,
+        'Generate a Color compression report?',
+        'N'
+      );
+      if (/^y(es)?$/i.test(String(answer).trim())) {
+        const reportPath = writeColorCompressionReport(
+          PROJECT_ROOT,
+          colourCompressionRounds
+        );
+        console.log('Wrote:', reportPath);
+      }
+    } finally {
+      rl.close();
+    }
+  }
 }
 
 main().catch((err) => {

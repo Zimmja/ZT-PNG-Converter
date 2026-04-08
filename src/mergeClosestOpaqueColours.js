@@ -33,7 +33,9 @@ function isDarkColour(r, g, b) {
  * @param {number} height
  * @param {Buffer} rgba length width * height * 4, mutated in place
  * @param {number} alphaThreshold
- * @returns {boolean} true if two colours were merged, false if there are fewer than two distinct opaque colours
+ * @returns {false | { fromA: { r: number, g: number, b: number }, fromB: { r: number, g: number, b: number }, into: { r: number, g: number, b: number } }}
+ *   `false` if there are fewer than two distinct opaque colours; otherwise the two source colours
+ *   (order follows the closest-pair search) and the averaged RGB they were merged into.
  */
 function mergeClosestPairOfOpaqueColours(width, height, rgba, alphaThreshold) {
   const distinct = new Set();
@@ -104,7 +106,11 @@ function mergeClosestPairOfOpaqueColours(width, height, rgba, alphaThreshold) {
     }
   }
 
-  return true;
+  return {
+    fromA: { r: bestA.r, g: bestA.g, b: bestA.b },
+    fromB: { r: bestB.r, g: bestB.g, b: bestB.b },
+    into: { r: newR, g: newG, b: newB },
+  };
 }
 
 module.exports = { mergeClosestPairOfOpaqueColours };
