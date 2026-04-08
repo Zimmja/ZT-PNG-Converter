@@ -1,10 +1,10 @@
 /**
  * Decodes a Zoo Tycoon 1-style extensionless graphic plus its .pal palette
- * and writes a PNG (first animation frame) into this folder.
+ * and writes a PNG (first animation frame) to output-png/zt1-output.png.
  *
  * Format reference: jbostoen/ZTStudio (ClsGraphic.vb, ClsFrame.vb, clsPalette.vb).
  *
- * Run with Node (e.g. Code Runner): node zt1GraphicToPng.js
+ * Run with Node: node src/zt1GraphicToPng.js (from project root)
  */
 
 const fs = require('fs');
@@ -12,13 +12,14 @@ const path = require('path');
 const zlib = require('zlib');
 
 // ---------------------------------------------------------------------------
-// Paths (script lives in testZT/)
+// Paths (project root = parent of src/)
 // ---------------------------------------------------------------------------
 
-const SCRIPT_DIR = __dirname;
-const SOURCE_DIR = path.join(SCRIPT_DIR, 'source-zt1');
+const PROJECT_ROOT = path.join(__dirname, '..');
+const SOURCE_DIR = path.join(PROJECT_ROOT, 'source-zt1');
 const GRAPHIC_CANDIDATES = [path.join(SOURCE_DIR, 'N'), path.join(SOURCE_DIR, 'n')];
-const OUTPUT_PNG = path.join(SCRIPT_DIR, 'zt1-output.png');
+const OUTPUT_PNG_DIR = path.join(PROJECT_ROOT, 'output-png');
+const OUTPUT_PNG = path.join(OUTPUT_PNG_DIR, 'zt1-output.png');
 
 // ---------------------------------------------------------------------------
 // Little-endian reads
@@ -375,6 +376,7 @@ function main() {
   const firstFrame = decodeFrame(graphic.frames[0], palette);
   const pngBuffer = encodePngRgba(firstFrame.width, firstFrame.height, firstFrame.rgba);
 
+  fs.mkdirSync(OUTPUT_PNG_DIR, { recursive: true });
   fs.writeFileSync(OUTPUT_PNG, pngBuffer);
 
   console.log('Graphic:', graphicPath);

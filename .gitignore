@@ -1,3 +1,6 @@
 sample/
 source-png/
 source-zt1/
+output-png/
+output-zt1/
+.DS_Store

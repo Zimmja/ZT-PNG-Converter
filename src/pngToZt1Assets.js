@@ -4,7 +4,7 @@ const zlib = require('zlib');
 
 const {
   mergeClosestPairOfOpaqueColours,
-} = require(path.join(__dirname, 'functions', 'mergeClosestOpaqueColours.js'));
+} = require(path.join(__dirname, 'mergeClosestOpaqueColours.js'));
 
 // ---------------------------------------------------------------------------
 // CUSTOMIZE: virtual path stored inside the ZT graphic (forward slashes).
@@ -16,13 +16,16 @@ const ZT_EMBEDDED_PATH_FOLDER = 'animals/ankylo/plankylo';
 const ZT_EMBEDDED_PALETTE_FILENAME = 'plankylo.pal';
 const ZT_EMBEDDED_PALETTE_PATH = `${ZT_EMBEDDED_PATH_FOLDER}/${ZT_EMBEDDED_PALETTE_FILENAME}`;
 
-// Input PNG (relative to this script)
-const SOURCE_PNG = path.join(__dirname, 'source-png', 'ankylo-menu.png');
+// Project root (parent of src/)
+const PROJECT_ROOT = path.join(__dirname, '..');
 
-const SCRIPT_DIR = __dirname;
+// Input PNG (relative to project root)
+const SOURCE_PNG = path.join(PROJECT_ROOT, 'source-png', 'ankylo-menu.png');
+
+const OUTPUT_ZT1_DIR = path.join(PROJECT_ROOT, 'output-zt1');
 const OUTPUT_BASENAME = "n"
-const OUTPUT_PAL_PATH = path.join(SCRIPT_DIR, `${ZT_EMBEDDED_PALETTE_FILENAME}`);
-const OUTPUT_GRAPHIC_PATH = path.join(SCRIPT_DIR, OUTPUT_BASENAME);
+const OUTPUT_PAL_PATH = path.join(OUTPUT_ZT1_DIR, `${ZT_EMBEDDED_PALETTE_FILENAME}`);
+const OUTPUT_GRAPHIC_PATH = path.join(OUTPUT_ZT1_DIR, OUTPUT_BASENAME);
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -491,7 +494,7 @@ function writeGraphicFile(
 // Set to null to skip copying and use FRAME_OFFSET_X / FRAME_OFFSET_Y /
 // MYSTERY_* only (e.g. when tuning placement by hand).
 // ---------------------------------------------------------------------------
-const REFERENCE_GRAPHIC_FOR_OFFSETS = path.join(SCRIPT_DIR, 'source', 'n');
+const REFERENCE_GRAPHIC_FOR_OFFSETS = path.join(PROJECT_ROOT, 'source', 'n');
 
 // Confirmed correct placement for this sprite (used when no reference graphic is found).
 const FRAME_OFFSET_X = 22;
@@ -530,6 +533,7 @@ function main() {
 
   const { palette, indexGrid } = buildPaletteFromRgba(width, height, rgba);
 
+  fs.mkdirSync(OUTPUT_ZT1_DIR, { recursive: true });
   writePalFile(OUTPUT_PAL_PATH, palette);
 
   let frameOffsetX = FRAME_OFFSET_X;
