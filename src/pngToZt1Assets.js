@@ -5,27 +5,24 @@ const zlib = require('zlib');
 const {
   mergeClosestPairOfOpaqueColours,
 } = require(path.join(__dirname, 'mergeClosestOpaqueColours.js'));
-
-// ---------------------------------------------------------------------------
-// CUSTOMIZE: virtual path stored inside the ZT graphic (forward slashes).
-// The game resolves this against its asset root; it must end with a .pal name.
-//
-// Edit the folder and/or filename below. Defaults keep the folder as "testZT".
-// ---------------------------------------------------------------------------
-const ZT_EMBEDDED_PATH_FOLDER = 'animals/ankylo/plankylo';
-const ZT_EMBEDDED_PALETTE_FILENAME = 'plankylo.pal';
-const ZT_EMBEDDED_PALETTE_PATH = `${ZT_EMBEDDED_PATH_FOLDER}/${ZT_EMBEDDED_PALETTE_FILENAME}`;
+const {
+  loadSettings,
+  saveSettings,
+  isLauncherMode,
+  isSafeBasename,
+  normalizeForwardSlashes,
+  normalizePaletteFilename,
+  DEFAULT_PNG_TO_ZT1_INPUT_BASENAME,
+  DEFAULT_IMAGE_PATH,
+  DEFAULT_ZT_FILENAME,
+  DEFAULT_PALETTE_FILENAME,
+} = require(path.join(__dirname, 'converterLocalSettings.js'));
+const { createRl, ask } = require(path.join(__dirname, 'converterReadline.js'));
+const { userError, formatCliError } = require(path.join(__dirname, 'cliError.js'));
 
 // Project root (parent of src/)
 const PROJECT_ROOT = path.join(__dirname, '..');
-
-// Input PNG (relative to project root)
-const SOURCE_PNG = path.join(PROJECT_ROOT, 'source-png', 'ankylo-menu.png');
-
 const OUTPUT_ZT1_DIR = path.join(PROJECT_ROOT, 'output-zt1');
-const OUTPUT_BASENAME = "n"
-const OUTPUT_PAL_PATH = path.join(OUTPUT_ZT1_DIR, `${ZT_EMBEDDED_PALETTE_FILENAME}`);
-const OUTPUT_GRAPHIC_PATH = path.join(OUTPUT_ZT1_DIR, OUTPUT_BASENAME);
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -67,7 +64,9 @@ function unfilterScanline(filterType, scanline, previousLine, bpp, outOffset, ou
     } else if (filterType === 4) {
       raw = (raw + paethPredictor(left, up, upLeft)) & 255;
     } else {
-      throw new Error(`Unsupported PNG filter type: ${filterType}`);
+      throw userError(
+        'This PNG uses a compression mode the tool does not support. Try re-exporting from your image editor.'
+      );
     }
     outBuffer[outOffset + x] = raw;
   }
@@ -75,7 +74,7 @@ function unfilterScanline(filterType, scanline, previousLine, bpp, outOffset, ou
 
 function decodePngRgba(buffer) {
   if (buffer.length < 8 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    throw new Error('Input is not a PNG file.');
+    throw userError('This file is not a PNG. Choose a .png file exported from your image editor.');
   }
 
   let offset = 8;
@@ -107,10 +106,12 @@ function decodePngRgba(buffer) {
   }
 
   if (width === undefined || height === undefined) {
-    throw new Error('PNG is missing IHDR.');
+    throw userError('The PNG looks damaged (missing image header). Try exporting the file again.');
   }
   if (bitDepth !== 8 || colorType !== 6) {
-    throw new Error('Only 8-bit RGBA PNGs are supported (color type 6).');
+    throw userError(
+      'Only 8-bit RGBA PNGs are supported. In your editor, export as PNG with transparency (alpha channel).'
+    );
   }
 
   const bpp = 4;
@@ -118,8 +119,8 @@ function decodePngRgba(buffer) {
   const inflated = zlib.inflateSync(Buffer.concat(idatParts));
   const expectedSize = height * (1 + rowByteCount);
   if (inflated.length !== expectedSize) {
-    throw new Error(
-      `Unexpected decompressed PNG size (got ${inflated.length}, expected ${expectedSize}).`
+    throw userError(
+      'The PNG image data looks inconsistent or damaged. Try opening and re-exporting the file.'
     );
   }
 
@@ -207,7 +208,9 @@ function buildPaletteFromRgba(width, height, rgba) {
       return opaqueIndexByRgb.get(key);
     }
     if (palette.length >= 256) {
-      throw new Error('Internal error: palette grew past 256 entries after validation.');
+      throw userError(
+        'Internal error while building the colour table. Try running the conversion again.'
+      );
     }
     const idx = palette.length;
     palette.push({ r, g, b });
@@ -299,30 +302,40 @@ function extractFirstFrameBuffer(graphicBuffer) {
     offset = 9;
   }
   if (offset + 12 > graphicBuffer.length) {
-    throw new Error('Reference graphic file is too small.');
+    throw userError(
+      'The reference graphic file (for alignment) is too small or damaged. Remove it or replace it with a valid ZT1 file.'
+    );
   }
   offset += 4;
   const pathLengthWithNull = graphicBuffer.readUInt32LE(offset);
   offset += 4;
   const pathCharCount = pathLengthWithNull - 1;
   if (pathCharCount < 0 || offset + pathLengthWithNull > graphicBuffer.length) {
-    throw new Error('Invalid palette path length in reference graphic.');
+    throw userError(
+      'The reference graphic file looks damaged (palette path length is invalid).'
+    );
   }
   offset += pathCharCount;
   if (graphicBuffer[offset] !== 0) {
-    throw new Error('Expected null terminator after palette path in reference graphic.');
+    throw userError(
+      'The reference graphic file looks damaged (palette path is not in the expected format).'
+    );
   }
   offset += 1;
 
   const frameCount = graphicBuffer.readUInt32LE(offset);
   offset += 4;
   if (frameCount < 1) {
-    throw new Error('Reference graphic contains no frames.');
+    throw userError(
+      'The reference graphic has no frames inside it, so alignment cannot be copied from it.'
+    );
   }
   const frameByteLength = graphicBuffer.readUInt32LE(offset);
   offset += 4;
   if (offset + frameByteLength > graphicBuffer.length) {
-    throw new Error('Reference graphic frame length is out of range.');
+    throw userError(
+      'The reference graphic file ends unexpectedly. It may be incomplete or damaged.'
+    );
   }
   return graphicBuffer.subarray(offset, offset + frameByteLength);
 }
@@ -333,7 +346,9 @@ function extractFirstFrameBuffer(graphicBuffer) {
  */
 function parseFrameHeaderPlacement(frameBytes) {
   if (frameBytes.length < 10) {
-    throw new Error('Reference frame is too short.');
+    throw userError(
+      'The reference graphic frame data is too short to read. Try a different reference file.'
+    );
   }
   const refHeight = readUInt16BEFromBytes(frameBytes[0], frameBytes[1]);
   const refWidth = readUInt16BEFromBytes(frameBytes[2], frameBytes[3]);
@@ -487,31 +502,255 @@ function writeGraphicFile(
 // the pixel shift the engine applies. Using (0, 0) when the original sprite used
 // non-zero values (e.g. 22, 16) makes the art look "offset" or misaligned.
 //
-// Recommended: point REFERENCE_GRAPHIC_FOR_OFFSETS at the vanilla ZT1 graphic
-// you are replacing (same art slot). Frame 0's offsets and mystery bytes are
-// copied automatically.
+// Non-launcher runs: if a reference graphic exists under source/ or source-zt1/
+// with the same extensionless name as your output ZT file, frame 0 offsets and
+// mystery bytes are copied from it. Otherwise adoption-menu defaults (22, 16) apply.
 //
-// Set to null to skip copying and use FRAME_OFFSET_X / FRAME_OFFSET_Y /
-// MYSTERY_* only (e.g. when tuning placement by hand).
+// Launcher runs (GUI): you pick Animation / Adoption / Facts / Other; reference
+// offsets are not used for that run.
 // ---------------------------------------------------------------------------
-const REFERENCE_GRAPHIC_FOR_OFFSETS = path.join(PROJECT_ROOT, 'source', 'n');
-
-// Confirmed correct placement for this sprite (used when no reference graphic is found).
+// Adoption-menu defaults when no reference graphic exists (non-launcher runs).
 const FRAME_OFFSET_X = 22;
 const FRAME_OFFSET_Y = 16;
 const MYSTERY_BYTE_0 = 0x01;
 const MYSTERY_BYTE_1 = 0x00;
 
+const PLACEMENT_PRESETS = {
+  '1': { label: 'Animation', offsetX: 93, offsetY: 63 },
+  '2': { label: 'Adoption menu', offsetX: 22, offsetY: 16 },
+  '3': { label: 'Facts menu', offsetX: 89, offsetY: 97 },
+};
+
+function embeddedPalettePathFromSettings(pngToZt1) {
+  const folder = normalizeForwardSlashes(pngToZt1.imagePath || DEFAULT_IMAGE_PATH);
+  const palFile = normalizePaletteFilename(
+    pngToZt1.paletteFilename || DEFAULT_PALETTE_FILENAME
+  );
+  return `${folder}/${palFile}`;
+}
+
+const REFERENCE_GRAPHIC_SUBDIRS = ['source', 'source-zt1'];
+
+/**
+ * Looks for a vanilla ZT graphic under source/ or source-zt1/ (same basename as output).
+ */
+function resolveReferenceGraphicPath(ztBasename) {
+  for (const sub of REFERENCE_GRAPHIC_SUBDIRS) {
+    const baseDir = path.join(PROJECT_ROOT, sub);
+    const candidate = path.join(baseDir, ztBasename);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+    const refBase = path.basename(candidate);
+    const sibling =
+      refBase === 'n'
+        ? path.join(baseDir, 'N')
+        : refBase === 'N'
+          ? path.join(baseDir, 'n')
+          : null;
+    if (sibling && fs.existsSync(sibling)) {
+      return sibling;
+    }
+  }
+  return null;
+}
+
+function parseIntStrict(line, label) {
+  const n = Number.parseInt(String(line).trim(), 10);
+  if (!Number.isFinite(n)) {
+    throw userError(`${label} must be a whole number (no decimals).`);
+  }
+  return n;
+}
+
+function ensureSourcePngFolderExists() {
+  const dir = path.join(PROJECT_ROOT, 'source-png');
+  if (!fs.existsSync(dir)) {
+    throw userError(
+      'The source-png folder is missing. Create it in the project folder and put your PNG image inside.'
+    );
+  }
+  if (!fs.statSync(dir).isDirectory()) {
+    throw userError(
+      'A file named source-png is in the way. It should be a folder that holds your PNG images.'
+    );
+  }
+}
+
+/**
+ * Confirms the input PNG exists and can be decoded before asking for ZT settings (launcher)
+ * or before building game assets (CLI).
+ */
+function validateSourcePngReady(sourcePng) {
+  if (!fs.existsSync(sourcePng)) {
+    throw userError(
+      `No PNG found here:\n${sourcePng}\nAdd that file to the source-png folder, or choose another base name.`
+    );
+  }
+  let buf;
+  try {
+    buf = fs.readFileSync(sourcePng);
+  } catch {
+    throw userError('The PNG file could not be read. Check that it is not open in another program.');
+  }
+  try {
+    decodePngRgba(buf);
+  } catch {
+    throw userError(
+      'This PNG cannot be used. Export from your editor as 8-bit RGBA PNG (with transparency / alpha).'
+    );
+  }
+}
+
+async function promptPngToZt1Settings(settings) {
+  const rl = createRl();
+  try {
+    const png = settings.pngToZt1 || {};
+    const inputBasename = await ask(
+      rl,
+      'Input PNG base name (without .png)',
+      settings.pngToZt1InputBasename || DEFAULT_PNG_TO_ZT1_INPUT_BASENAME
+    );
+    if (!isSafeBasename(inputBasename)) {
+      throw userError(
+        `Invalid input name "${inputBasename}" (use a simple name without slashes or "..").`
+      );
+    }
+    const sourcePngPath = path.join(
+      PROJECT_ROOT,
+      'source-png',
+      `${inputBasename}.png`
+    );
+    validateSourcePngReady(sourcePngPath);
+
+    const imagePath = await ask(
+      rl,
+      'Image path (virtual folder inside the ZT graphic, use forward slashes)',
+      png.imagePath || DEFAULT_IMAGE_PATH
+    );
+    if (!imagePath || imagePath.includes('..')) {
+      throw userError(
+        'Image path must not be empty and must not contain ".." (use forward slashes only).'
+      );
+    }
+
+    const ztFilename = await ask(
+      rl,
+      'ZT filename (extensionless output file name in output-zt1/)',
+      png.ztFilename || DEFAULT_ZT_FILENAME
+    );
+    if (!isSafeBasename(ztFilename)) {
+      throw userError(
+        `Invalid ZT file name "${ztFilename}" (use a simple name without slashes or "..").`
+      );
+    }
+
+    const paletteFilename = await ask(
+      rl,
+      'Palette filename (with or without .pal)',
+      png.paletteFilename || DEFAULT_PALETTE_FILENAME
+    );
+    if (!paletteFilename || String(paletteFilename).includes('/') || String(paletteFilename).includes('\\')) {
+      throw userError(
+        'Palette name must be a single file name (not a path). Example: icflion or icflion.pal'
+      );
+    }
+
+    console.log('');
+    console.log('Frame placement (offset X / Y in the ZT graphic):');
+    console.log('  1  Animation        (X=93,  Y=63)');
+    console.log('  2  Adoption menu    (X=22,  Y=16)');
+    console.log('  3  Facts menu       (X=89,  Y=97)');
+    console.log('  4  Other            (enter X and Y manually; not saved)');
+    const placementChoice = await ask(rl, 'Enter 1–4', '2');
+    let offsetX;
+    let offsetY;
+    if (PLACEMENT_PRESETS[placementChoice]) {
+      const p = PLACEMENT_PRESETS[placementChoice];
+      offsetX = p.offsetX;
+      offsetY = p.offsetY;
+      console.log(`Using ${p.label}: offset X=${offsetX}, Y=${offsetY}`);
+    } else if (placementChoice === '4') {
+      offsetX = parseIntStrict(await ask(rl, 'Offset X', '0'), 'Offset X');
+      offsetY = parseIntStrict(await ask(rl, 'Offset Y', '0'), 'Offset Y');
+      console.log(`Using custom offsets: X=${offsetX}, Y=${offsetY} (not saved)`);
+    } else {
+      throw userError('Type 1, 2, 3, or 4 to choose frame placement.');
+    }
+
+    saveSettings({
+      pngToZt1InputBasename: inputBasename,
+      pngToZt1: {
+        imagePath: normalizeForwardSlashes(imagePath),
+        ztFilename,
+        paletteFilename: String(paletteFilename).trim(),
+      },
+    });
+
+    return {
+      inputBasename,
+      pngToZt1: {
+        imagePath: normalizeForwardSlashes(imagePath),
+        ztFilename,
+        paletteFilename: String(paletteFilename).trim(),
+      },
+      launcherOffsets: { offsetX, offsetY },
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+function resolvePathsAndPlacementFromSettings(settings) {
+  const inputBasename =
+    settings.pngToZt1InputBasename || DEFAULT_PNG_TO_ZT1_INPUT_BASENAME;
+  const png = settings.pngToZt1 || {};
+  const pngToZt1 = {
+    imagePath: normalizeForwardSlashes(png.imagePath || DEFAULT_IMAGE_PATH),
+    ztFilename: (png.ztFilename || DEFAULT_ZT_FILENAME).trim(),
+    paletteFilename: png.paletteFilename || DEFAULT_PALETTE_FILENAME,
+  };
+  const paletteFileOnDisk = normalizePaletteFilename(pngToZt1.paletteFilename);
+  const sourcePng = path.join(PROJECT_ROOT, 'source-png', `${inputBasename}.png`);
+  const outputPalPath = path.join(OUTPUT_ZT1_DIR, paletteFileOnDisk);
+  const outputGraphicPath = path.join(OUTPUT_ZT1_DIR, pngToZt1.ztFilename);
+  const embeddedPalettePath = embeddedPalettePathFromSettings(pngToZt1);
+  return {
+    inputBasename,
+    pngToZt1,
+    paletteFileOnDisk,
+    sourcePng,
+    outputPalPath,
+    outputGraphicPath,
+    embeddedPalettePath,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
-  if (!fs.existsSync(SOURCE_PNG)) {
-    throw new Error(`Missing input PNG: ${SOURCE_PNG}`);
+async function main() {
+  ensureSourcePngFolderExists();
+
+  let settings = loadSettings();
+  let useLauncherPlacement = false;
+  let launcherOffsets = null;
+
+  if (isLauncherMode()) {
+    const prompted = await promptPngToZt1Settings(settings);
+    settings = loadSettings();
+    useLauncherPlacement = true;
+    launcherOffsets = prompted.launcherOffsets;
   }
 
-  const pngBytes = fs.readFileSync(SOURCE_PNG);
+  const paths = resolvePathsAndPlacementFromSettings(settings);
+  const { sourcePng, outputPalPath, outputGraphicPath, embeddedPalettePath } =
+    paths;
+
+  validateSourcePngReady(sourcePng);
+
+  const pngBytes = fs.readFileSync(sourcePng);
   const { width, height, rgba } = decodePngRgba(pngBytes);
 
   let colourCompressions = 0;
@@ -523,9 +762,8 @@ function main() {
       TRANSPARENT_ALPHA_THRESHOLD
     );
     if (!merged) {
-      const n = countDistinctOpaqueRgb(width, height, rgba).size
-      throw new Error(
-        'Opaque colour count still exceeds the ZT1 palette limit but fewer than two distinct opaque colours exist to merge.'
+      throw userError(
+        'This image uses too many solid colours for ZT1 (max 255 besides black). Reduce colours in your art, or merge similar shades in your editor.'
       );
     }
     colourCompressions += 1;
@@ -534,30 +772,22 @@ function main() {
   const { palette, indexGrid } = buildPaletteFromRgba(width, height, rgba);
 
   fs.mkdirSync(OUTPUT_ZT1_DIR, { recursive: true });
-  writePalFile(OUTPUT_PAL_PATH, palette);
+  writePalFile(outputPalPath, palette);
 
   let frameOffsetX = FRAME_OFFSET_X;
   let frameOffsetY = FRAME_OFFSET_Y;
   let mystery0 = MYSTERY_BYTE_0;
   let mystery1 = MYSTERY_BYTE_1;
 
-  if (REFERENCE_GRAPHIC_FOR_OFFSETS != null) {
-    let referencePath = null;
-    if (fs.existsSync(REFERENCE_GRAPHIC_FOR_OFFSETS)) {
-      referencePath = REFERENCE_GRAPHIC_FOR_OFFSETS;
-    } else {
-      const refDir = path.dirname(REFERENCE_GRAPHIC_FOR_OFFSETS);
-      const refBase = path.basename(REFERENCE_GRAPHIC_FOR_OFFSETS);
-      const sibling =
-        refBase === 'n'
-          ? path.join(refDir, 'N')
-          : refBase === 'N'
-            ? path.join(refDir, 'n')
-            : null;
-      if (sibling && fs.existsSync(sibling)) {
-        referencePath = sibling;
-      }
-    }
+  if (useLauncherPlacement && launcherOffsets) {
+    frameOffsetX = launcherOffsets.offsetX;
+    frameOffsetY = launcherOffsets.offsetY;
+    console.log(
+      'Placement from launcher choice:',
+      `(offsetX=${frameOffsetX}, offsetY=${frameOffsetY}, mystery=${mystery0} ${mystery1})`
+    );
+  } else {
+    const referencePath = resolveReferenceGraphicPath(paths.pngToZt1.ztFilename);
 
     if (referencePath) {
       const placement = parseFrameHeaderPlacement(
@@ -576,12 +806,12 @@ function main() {
         console.log(
           `Note: reference frame size is ${placement.refWidth}×${placement.refHeight}px; ` +
             `your PNG is ${width}×${height}px. Offsets were copied anyway — if alignment ` +
-            'still looks wrong, adjust FRAME_OFFSET_X/Y in ZT Studio or by hand.'
+            'still looks wrong, adjust offsets in ZT Studio or by hand.'
         );
       }
     } else {
       console.log(
-        `Reference graphic not found (${REFERENCE_GRAPHIC_FOR_OFFSETS}); using FRAME_OFFSET_X/Y.`
+        `Reference graphic not found for "${paths.pngToZt1.ztFilename}" under source/ or source-zt1/; using default offset X/Y (${FRAME_OFFSET_X}, ${FRAME_OFFSET_Y}).`
       );
     }
   }
@@ -596,19 +826,22 @@ function main() {
     mystery1
   );
   writeGraphicFile(
-    OUTPUT_GRAPHIC_PATH,
+    outputGraphicPath,
     ANIMATION_SPEED_MS,
-    ZT_EMBEDDED_PALETTE_PATH,
+    embeddedPalettePath,
     [frameBuffer]
   );
 
-  console.log('Input PNG:', SOURCE_PNG);
+  console.log('Input PNG:', sourcePng);
   console.log('Dimensions:', `${width}×${height}`);
   console.log('Palette colours:', palette.length);
-  console.log('Embedded palette path (customize at top of file):', ZT_EMBEDDED_PALETTE_PATH);
-  console.log('Wrote:', OUTPUT_PAL_PATH);
-  console.log('Wrote:', OUTPUT_GRAPHIC_PATH);
+  console.log('Embedded palette path:', embeddedPalettePath);
+  console.log('Wrote:', outputPalPath);
+  console.log('Wrote:', outputGraphicPath);
   console.log(`Completed with ${colourCompressions} colour compressions`);
 }
 
-main();
+main().catch((err) => {
+  console.error(formatCliError(err));
+  process.exitCode = 1;
+});

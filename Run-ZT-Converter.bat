@@ -13,8 +13,8 @@ if errorlevel 1 (
 :menu
 echo.
 echo ZT PNG Converter
-echo   1  PNG to ZT1 assets   (src\pngToZt1Assets.js^)
-echo   2  ZT1 graphic to PNG (src\zt1GraphicToPng.js^)
+echo   1  PNG to ZT1
+echo   2  ZT1 to PNG
 echo   Q  Quit
 echo.
 set "c="
@@ -25,10 +25,12 @@ if /i "%c%"=="q" exit /b 0
 goto menu
 
 :run_png_to_zt1
+set "ZT_CONVERTER_FROM_LAUNCHER=1"
 node "%~dp0src\pngToZt1Assets.js"
 goto done
 
 :run_zt1_to_png
+set "ZT_CONVERTER_FROM_LAUNCHER=1"
 node "%~dp0src\zt1GraphicToPng.js"
 goto done
 

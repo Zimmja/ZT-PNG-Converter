@@ -28,31 +28,35 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-CHOICE=$(osascript <<'APPLESCRIPT'
-try
-  set r to display dialog "Which converter do you want to run?" & return & return & "PNG → ZT1: builds game assets from your configured PNG into output-zt1/ (src/pngToZt1Assets.js)." & return & "ZT1 → PNG: decodes source-zt1 into output-png/zt1-output.png (src/zt1GraphicToPng.js)." buttons {"Cancel", "ZT1 → PNG", "PNG → ZT1"} default button "PNG → ZT1" with title "ZT PNG Converter"
-  return button returned of r
-on error number -128
-  return "cancel"
-end try
-APPLESCRIPT
-)
-
-CHOICE="${CHOICE//$'\r'/}"
-CHOICE="${CHOICE//$'\n'/}"
-
-case "$CHOICE" in
-  "PNG → ZT1")
-    node "$DIR/src/pngToZt1Assets.js"
-    ;;
-  "ZT1 → PNG")
-    node "$DIR/src/zt1GraphicToPng.js"
-    ;;
-  *)
-    close_terminal_window
-    exit 0
-    ;;
-esac
+while true; do
+  echo ""
+  echo "ZT PNG Converter"
+  echo "  1  PNG to ZT1"
+  echo "  2  ZT1 to PNG"
+  echo "  Q  Quit"
+  echo ""
+  read -rp "Enter choice (1, 2, or Q): " zt_choice
+  zt_choice_lc=$(printf '%s' "$zt_choice" | tr '[:upper:]' '[:lower:]')
+  case "$zt_choice_lc" in
+    1)
+      export ZT_CONVERTER_FROM_LAUNCHER=1
+      node "$DIR/src/pngToZt1Assets.js"
+      break
+      ;;
+    2)
+      export ZT_CONVERTER_FROM_LAUNCHER=1
+      node "$DIR/src/zt1GraphicToPng.js"
+      break
+      ;;
+    q)
+      close_terminal_window
+      exit 0
+      ;;
+    *)
+      echo "Invalid choice."
+      ;;
+  esac
+done
 
 echo
 prompt_then_close_terminal

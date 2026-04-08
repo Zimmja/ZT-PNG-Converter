@@ -1,6 +1,7 @@
 /**
  * Decodes a Zoo Tycoon 1-style extensionless graphic plus its .pal palette
- * and writes a PNG (first animation frame) to output-png/zt1-output.png.
+ * and writes a PNG (first animation frame) to output-png/<basename>.png.
+ * Basename defaults to zt1-output; the GUI launcher prompts and persists it under .local/ (git-ignored).
  *
  * Format reference: jbostoen/ZTStudio (ClsGraphic.vb, ClsFrame.vb, clsPalette.vb).
  *
@@ -11,6 +12,16 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
+const {
+  loadSettings,
+  saveSettings,
+  isLauncherMode,
+  isSafeBasename,
+  DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME,
+} = require(path.join(__dirname, 'converterLocalSettings.js'));
+const { createRl, ask } = require(path.join(__dirname, 'converterReadline.js'));
+const { userError, formatCliError } = require(path.join(__dirname, 'cliError.js'));
+
 // ---------------------------------------------------------------------------
 // Paths (project root = parent of src/)
 // ---------------------------------------------------------------------------
@@ -19,7 +30,56 @@ const PROJECT_ROOT = path.join(__dirname, '..');
 const SOURCE_DIR = path.join(PROJECT_ROOT, 'source-zt1');
 const GRAPHIC_CANDIDATES = [path.join(SOURCE_DIR, 'N'), path.join(SOURCE_DIR, 'n')];
 const OUTPUT_PNG_DIR = path.join(PROJECT_ROOT, 'output-png');
-const OUTPUT_PNG = path.join(OUTPUT_PNG_DIR, 'zt1-output.png');
+
+function parseOutputBasenameFromArgv(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--output-basename=')) {
+      return a.slice('--output-basename='.length);
+    }
+    if (a === '--output-basename' && argv[i + 1]) {
+      return argv[i + 1];
+    }
+  }
+  return null;
+}
+
+async function resolveOutputBasenameInteractive(settings) {
+  const fromArgv = parseOutputBasenameFromArgv(process.argv.slice(2));
+  if (fromArgv !== null && fromArgv !== '') {
+    if (!isSafeBasename(fromArgv)) {
+      throw userError(
+        `Invalid output name "${fromArgv}" (use a simple name without path separators).`
+      );
+    }
+    saveSettings({ zt1ToPngOutputBasename: fromArgv.trim() });
+    return fromArgv.trim();
+  }
+
+  if (!isLauncherMode()) {
+    return settings.zt1ToPngOutputBasename || DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME;
+  }
+
+  const rl = createRl();
+  try {
+    const current =
+      settings.zt1ToPngOutputBasename || DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME;
+    const line = await ask(
+      rl,
+      'Specify a name for the output PNG file (without .png)',
+      current
+    );
+    if (!isSafeBasename(line)) {
+      throw userError(
+        `Invalid output name "${line}" (use a simple name without path separators).`
+      );
+    }
+    saveSettings({ zt1ToPngOutputBasename: line });
+    return line;
+  } finally {
+    rl.close();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Little-endian reads
@@ -42,7 +102,9 @@ function readUInt16BEFromBytes(low, high) {
 function loadPalette(palPath) {
   const raw = fs.readFileSync(palPath);
   if (raw.length < 4) {
-    throw new Error(`Palette file too small: ${palPath}`);
+    throw userError(
+      'The palette file looks empty or incomplete. Check that it is a valid ZT1 .pal file.'
+    );
   }
 
   const colours = [];
@@ -58,7 +120,9 @@ function loadPalette(palPath) {
   }
 
   if (colours.length === 0) {
-    throw new Error(`No colour entries in palette: ${palPath}`);
+    throw userError(
+      'The palette file does not contain any colours. It may be damaged or the wrong file.'
+    );
   }
 
   return colours;
@@ -90,8 +154,8 @@ function findGraphicPath() {
       return candidate;
     }
   }
-  throw new Error(
-    `No graphic file found. Tried: ${GRAPHIC_CANDIDATES.join(', ')}`
+  throw userError(
+    'Add a ZT1 graphic file to the source-zt1 folder. It should be named N or n and have no file extension.'
   );
 }
 
@@ -104,7 +168,7 @@ function parseGraphicFile(graphicPath) {
   let offset = 0;
 
   if (buffer.length < 12) {
-    throw new Error('Graphic file is too small to be valid.');
+    throw userError('The graphic file is too small to be a valid ZT1 file.');
   }
 
   // Optional FATZ (ZT animation) header: "FATZ" + padding + background flag
@@ -130,7 +194,9 @@ function parseGraphicFile(graphicPath) {
   offset += palettePathCharCount;
   // Skip null terminator
   if (buffer[offset] !== 0) {
-    throw new Error('Expected null terminator after palette path string.');
+    throw userError(
+      'The graphic file looks damaged (palette path is not in the expected format).'
+    );
   }
   offset += 1;
 
@@ -140,13 +206,15 @@ function parseGraphicFile(graphicPath) {
   const frames = [];
   for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
     if (offset + 4 > buffer.length) {
-      throw new Error(`Unexpected end of file while reading frame ${frameIndex} length.`);
+      throw userError(
+        'The graphic file ends unexpectedly while reading frame data. The file may be incomplete.'
+      );
     }
     const frameByteLength = readUInt32LE(buffer, offset);
     offset += 4;
     if (offset + frameByteLength > buffer.length) {
-      throw new Error(
-        `Frame ${frameIndex} length ${frameByteLength} exceeds remaining file size.`
+      throw userError(
+        'The graphic file ends unexpectedly inside a frame. The file may be incomplete or damaged.'
       );
     }
     frames.push(buffer.subarray(offset, offset + frameByteLength));
@@ -171,9 +239,8 @@ function resolvePalettePath(graphicPath, paletteRelativePath) {
   if (fs.existsSync(inSource)) {
     return inSource;
   }
-  throw new Error(
-    `Could not find palette "${baseName}" next to the graphic or under source/. ` +
-      `(Embedded path was: ${paletteRelativePath})`
+  throw userError(
+    `Could not find the palette file "${baseName}". Put it in the source-zt1 folder next to the graphic (or in the same folder as the graphic on disk).`
   );
 }
 
@@ -183,7 +250,9 @@ function resolvePalettePath(graphicPath, paletteRelativePath) {
 
 function decodeFrame(frameBytes, palette) {
   if (frameBytes.length < 10) {
-    throw new Error(`Frame too short (${frameBytes.length} bytes).`);
+    throw userError(
+      'The image frame in this graphic is too small to read. The file may be damaged.'
+    );
   }
 
   const byte0 = frameBytes[0];
@@ -203,15 +272,15 @@ function decodeFrame(frameBytes, palette) {
         rgba: Buffer.from([0, 0, 0, 0]),
       };
     }
-    throw new Error(
-      'Unsupported 10-byte frame layout (non-empty dimensions).'
+    throw userError(
+      'This graphic uses a frame layout this tool does not support yet.'
     );
   }
 
   // Marine Mania compressed shadow format (not used by our sample)
   if (byte1 === 0x80) {
-    throw new Error(
-      'Compressed shadow format (byte1 === 0x80) is not implemented in this script.'
+    throw userError(
+      'This graphic uses a compressed shadow format that this tool does not support yet.'
     );
   }
 
@@ -254,7 +323,9 @@ function decodeFrame(frameBytes, palette) {
 
     for (let instr = 0; instr < numRowInstructions; instr++) {
       if (pos + 2 > frameBytes.length) {
-        throw new Error('Unexpected end of frame while reading row instruction.');
+        throw userError(
+          'The frame data ends unexpectedly while reading a row. The graphic may be damaged.'
+        );
       }
       const skipTransparent = frameBytes[pos];
       const numColourPixels = frameBytes[pos + 1];
@@ -263,7 +334,9 @@ function decodeFrame(frameBytes, palette) {
       drawX += skipTransparent;
 
       if (pos + numColourPixels > frameBytes.length) {
-        throw new Error('Unexpected end of frame while reading palette indices.');
+        throw userError(
+          'The frame data ends unexpectedly while reading colours. The graphic may be damaged.'
+        );
       }
 
       for (let p = 0; p < numColourPixels; p++) {
@@ -326,7 +399,7 @@ function writeChunk(type, data) {
 
 function encodePngRgba(width, height, rgba) {
   if (rgba.length !== width * height * 4) {
-    throw new Error('RGBA buffer size does not match width * height.');
+    throw userError('Internal error while building the PNG. Try running the conversion again.');
   }
 
   const rawRows = [];
@@ -363,21 +436,56 @@ function encodePngRgba(width, height, rgba) {
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
+/**
+ * Confirms source-zt1 has a readable graphic, resolvable palette, and loadable colours
+ * before any output-name prompts (launcher) or other work.
+ */
+function loadZt1SourceBundle() {
+  if (!fs.existsSync(SOURCE_DIR)) {
+    throw userError(
+      'The source-zt1 folder is missing. Create it in the project folder and add your ZT1 graphic (named N or n, no extension) and its palette (.pal) file.'
+    );
+  }
+  if (!fs.statSync(SOURCE_DIR).isDirectory()) {
+    throw userError(
+      'A file named source-zt1 is in the way. It should be a folder that holds your ZT1 graphic and palette.'
+    );
+  }
   const graphicPath = findGraphicPath();
   const graphic = parseGraphicFile(graphicPath);
-  const palettePath = resolvePalettePath(graphicPath, graphic.paletteRelativePath);
-  const palette = loadPalette(palettePath);
-
   if (graphic.frames.length === 0) {
-    throw new Error('Graphic contains no frames.');
+    throw userError('The ZT1 graphic does not contain any frames to export.');
   }
+  const palettePath = resolvePalettePath(
+    graphicPath,
+    graphic.paletteRelativePath
+  );
+  const palette = loadPalette(palettePath);
+  return { graphicPath, graphic, palettePath, palette };
+}
 
-  const firstFrame = decodeFrame(graphic.frames[0], palette);
+async function main() {
+  const { graphicPath, graphic, palettePath, palette } = loadZt1SourceBundle();
+
+  const settings = loadSettings();
+  const outputBasename = await resolveOutputBasenameInteractive(settings);
+  const outputPng = path.join(OUTPUT_PNG_DIR, `${outputBasename}.png`);
+
+  let firstFrame;
+  try {
+    firstFrame = decodeFrame(graphic.frames[0], palette);
+  } catch (err) {
+    if (err && err.message && err.message.startsWith('ERROR:')) {
+      throw err;
+    }
+    throw userError(
+      'The first frame of this graphic could not be turned into an image. The file may use an unsupported format.'
+    );
+  }
   const pngBuffer = encodePngRgba(firstFrame.width, firstFrame.height, firstFrame.rgba);
 
   fs.mkdirSync(OUTPUT_PNG_DIR, { recursive: true });
-  fs.writeFileSync(OUTPUT_PNG, pngBuffer);
+  fs.writeFileSync(outputPng, pngBuffer);
 
   console.log('Graphic:', graphicPath);
   console.log('Palette:', palettePath);
@@ -388,7 +496,10 @@ function main() {
     `${firstFrame.width}×${firstFrame.height}px`,
     `(offsets X=${firstFrame.offsetX}, Y=${firstFrame.offsetY} — informational only)`
   );
-  console.log('Wrote:', OUTPUT_PNG);
+  console.log('Wrote:', outputPng);
 }
 
-main();
+main().catch((err) => {
+  console.error(formatCliError(err));
+  process.exitCode = 1;
+});

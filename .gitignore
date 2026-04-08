@@ -3,4 +3,5 @@ source-png/
 source-zt1/
 output-png/
 output-zt1/
+.local/
 .DS_Store
