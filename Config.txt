@@ -1,0 +1,11 @@
+; ZT1 → PNG
+zt1SourceDirPath: "source-zt1" ; ZT1 source directory: relative to project root; place an extensionless ZT1 graphic (N or n) and .pal files here.
+pngOutputPath: "output-png/zt1-output.png" ; PNG output path: relative to project root; folder and file name for the exported PNG.
+
+; PNG → ZT1
+sourcePngPath: "source-png/zt1-output.png" ; Source PNG path: relative to project root; input PNG for PNG → ZT1 (.png extension optional).
+zt1EmbeddedPalettePath: "animals/lion/icflion/icflion.pal" ; Embedded palette path: virtual path written inside the ZT graphic (forward slashes, include the .pal file name).
+zt1GraphicOutputPath: "output-zt1/N" ; ZT graphic output path: relative to project root; extensionless output file for the ZT1 graphic.
+zt1PaletteOutputPath: "output-zt1/icflion.pal" ; Palette output path: relative to project root; .pal file written on disk (.pal optional).
+frameOffsetX: "22" ; Animation="93", Adoption menu button="22", Animal facts image="89"
+frameOffsetY: "16" ; Animation="63", Adoption menu button="16", Animal facts image="97"

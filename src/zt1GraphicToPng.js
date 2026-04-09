@@ -1,7 +1,7 @@
 /**
  * Decodes a Zoo Tycoon 1-style extensionless graphic plus its .pal palette
- * and writes a PNG (first animation frame) to output-png/<basename>.png.
- * Basename defaults to zt1-output; the GUI launcher prompts and persists it under .local/ (git-ignored).
+ * and writes a PNG (first animation frame) to the path given in Config.txt (pngOutputPath).
+ * The file name part can be overridden with --output-basename (same folder as in config).
  *
  * Format reference: jbostoen/ZTStudio (ClsGraphic.vb, ClsFrame.vb, clsPalette.vb).
  *
@@ -12,14 +12,13 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
+const { isSafeBasename } = require(path.join(
+  __dirname,
+  'converterLocalSettings.js'
+));
 const {
-  loadSettings,
-  saveSettings,
-  isLauncherMode,
-  isSafeBasename,
-  DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME,
-} = require(path.join(__dirname, 'converterLocalSettings.js'));
-const { createRl, ask } = require(path.join(__dirname, 'converterReadline.js'));
+  loadAndValidateForZt1ToPng,
+} = require(path.join(__dirname, 'converterConfig.js'));
 const { userError, formatCliError } = require(path.join(__dirname, 'cliError.js'));
 
 // ---------------------------------------------------------------------------
@@ -27,9 +26,6 @@ const { userError, formatCliError } = require(path.join(__dirname, 'cliError.js'
 // ---------------------------------------------------------------------------
 
 const PROJECT_ROOT = path.join(__dirname, '..');
-const SOURCE_DIR = path.join(PROJECT_ROOT, 'source-zt1');
-const GRAPHIC_CANDIDATES = [path.join(SOURCE_DIR, 'N'), path.join(SOURCE_DIR, 'n')];
-const OUTPUT_PNG_DIR = path.join(PROJECT_ROOT, 'output-png');
 
 function parseOutputBasenameFromArgv(argv) {
   for (let i = 0; i < argv.length; i++) {
@@ -44,7 +40,10 @@ function parseOutputBasenameFromArgv(argv) {
   return null;
 }
 
-async function resolveOutputBasenameInteractive(settings) {
+/**
+ * @param {{ outputDir: string, basenameNoExt: string, outputPngAbs: string }} pngOutputParsed
+ */
+function resolveOutputPngPath(pngOutputParsed) {
   const fromArgv = parseOutputBasenameFromArgv(process.argv.slice(2));
   if (fromArgv !== null && fromArgv !== '') {
     if (!isSafeBasename(fromArgv)) {
@@ -52,33 +51,9 @@ async function resolveOutputBasenameInteractive(settings) {
         `Invalid output name "${fromArgv}" (use a simple name without path separators).`
       );
     }
-    saveSettings({ zt1ToPngOutputBasename: fromArgv.trim() });
-    return fromArgv.trim();
+    return path.join(pngOutputParsed.outputDir, `${fromArgv.trim()}.png`);
   }
-
-  if (!isLauncherMode()) {
-    return settings.zt1ToPngOutputBasename || DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME;
-  }
-
-  const rl = createRl();
-  try {
-    const current =
-      settings.zt1ToPngOutputBasename || DEFAULT_ZT1_TO_PNG_OUTPUT_BASENAME;
-    const line = await ask(
-      rl,
-      'Specify a name for the output PNG file',
-      current
-    );
-    if (!isSafeBasename(line)) {
-      throw userError(
-        `Invalid output name "${line}" (use a simple name without path separators).`
-      );
-    }
-    saveSettings({ zt1ToPngOutputBasename: line });
-    return line;
-  } finally {
-    rl.close();
-  }
+  return pngOutputParsed.outputPngAbs;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,14 +123,22 @@ function paletteColourToRgba(palette, index) {
 // Extensionless graphic (ClsGraphic.Read)
 // ---------------------------------------------------------------------------
 
-function findGraphicPath() {
-  for (const candidate of GRAPHIC_CANDIDATES) {
+/**
+ * @param {string} zt1SourceDirAbs
+ */
+function findGraphicPath(zt1SourceDirAbs) {
+  const candidates = [
+    path.join(zt1SourceDirAbs, 'N'),
+    path.join(zt1SourceDirAbs, 'n'),
+  ];
+  for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
       return candidate;
     }
   }
+  const label = path.relative(PROJECT_ROOT, zt1SourceDirAbs) || zt1SourceDirAbs;
   throw userError(
-    'Add a ZT1 graphic file to the source-zt1 folder. It should be named N or n and have no file extension.'
+    `Add a ZT1 graphic file to your ZT1 source folder (${label}). It should be named N or n and have no file extension.`
   );
 }
 
@@ -229,18 +212,19 @@ function parseGraphicFile(graphicPath) {
   };
 }
 
-function resolvePalettePath(graphicPath, paletteRelativePath) {
+function resolvePalettePath(graphicPath, paletteRelativePath, zt1SourceDirAbs) {
   const baseName = path.basename(paletteRelativePath.replace(/\\/g, '/'));
   const nextToGraphic = path.join(path.dirname(graphicPath), baseName);
   if (fs.existsSync(nextToGraphic)) {
     return nextToGraphic;
   }
-  const inSource = path.join(SOURCE_DIR, baseName);
+  const inSource = path.join(zt1SourceDirAbs, baseName);
   if (fs.existsSync(inSource)) {
     return inSource;
   }
+  const label = path.relative(PROJECT_ROOT, zt1SourceDirAbs) || zt1SourceDirAbs;
   throw userError(
-    `Could not find the palette file "${baseName}". Put it in the source-zt1 folder next to the graphic (or in the same folder as the graphic on disk).`
+    `Could not find the palette file "${baseName}". Put it in ${label} next to the graphic (or in the same folder as the graphic on disk).`
   );
 }
 
@@ -437,39 +421,43 @@ function encodePngRgba(width, height, rgba) {
 // ---------------------------------------------------------------------------
 
 /**
- * Confirms source-zt1 has a readable graphic, resolvable palette, and loadable colours
- * before any output-name prompts (launcher) or other work.
+ * Confirms the configured ZT1 source folder has a readable graphic, resolvable palette, and loadable colours
+ * before writing the output PNG.
+ * @param {string} zt1SourceDirAbs
  */
-function loadZt1SourceBundle() {
-  if (!fs.existsSync(SOURCE_DIR)) {
+function loadZt1SourceBundle(zt1SourceDirAbs) {
+  const sourceLabel =
+    path.relative(PROJECT_ROOT, zt1SourceDirAbs) || zt1SourceDirAbs;
+  if (!fs.existsSync(zt1SourceDirAbs)) {
     throw userError(
-      'The source-zt1 folder is missing. Create it in the project folder and add your ZT1 graphic (named N or n, no extension) and its palette (.pal) file.'
+      `The ZT1 source folder is missing (${sourceLabel}). Create it and add your ZT1 graphic (named N or n, no extension) and its palette (.pal) file.`
     );
   }
-  if (!fs.statSync(SOURCE_DIR).isDirectory()) {
+  if (!fs.statSync(zt1SourceDirAbs).isDirectory()) {
     throw userError(
-      'A file named source-zt1 is in the way. It should be a folder that holds your ZT1 graphic and palette.'
+      `ZT1 source path must be a folder (${sourceLabel}). Check zt1SourceDirPath in Config.txt.`
     );
   }
-  const graphicPath = findGraphicPath();
+  const graphicPath = findGraphicPath(zt1SourceDirAbs);
   const graphic = parseGraphicFile(graphicPath);
   if (graphic.frames.length === 0) {
     throw userError('The ZT1 graphic does not contain any frames to export.');
   }
   const palettePath = resolvePalettePath(
     graphicPath,
-    graphic.paletteRelativePath
+    graphic.paletteRelativePath,
+    zt1SourceDirAbs
   );
   const palette = loadPalette(palettePath);
   return { graphicPath, graphic, palettePath, palette };
 }
 
 async function main() {
-  const { graphicPath, graphic, palettePath, palette } = loadZt1SourceBundle();
+  const { zt1SourceDirAbs, pngOutputParsed } = loadAndValidateForZt1ToPng();
+  const outputPng = resolveOutputPngPath(pngOutputParsed);
 
-  const settings = loadSettings();
-  const outputBasename = await resolveOutputBasenameInteractive(settings);
-  const outputPng = path.join(OUTPUT_PNG_DIR, `${outputBasename}.png`);
+  const { graphicPath, graphic, palettePath, palette } =
+    loadZt1SourceBundle(zt1SourceDirAbs);
 
   let firstFrame;
   try {
@@ -484,7 +472,7 @@ async function main() {
   }
   const pngBuffer = encodePngRgba(firstFrame.width, firstFrame.height, firstFrame.rgba);
 
-  fs.mkdirSync(OUTPUT_PNG_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(outputPng), { recursive: true });
   fs.writeFileSync(outputPng, pngBuffer);
 
   console.log('Graphic:', graphicPath);
