@@ -49,6 +49,10 @@ const CONFIG_KEY_DEFS = {
     description:
       'Frame offset Y: vertical placement in the ZT graphic (pixels); used when running from the GUI launcher.',
   },
+  duplicatePaletteSubtypeDirPath: {
+    description:
+      'Duplicate palette: relative path to a subtype folder (e.g. duplicate/y); a .pal file must sit in the parent folder next to this folder.',
+  },
 };
 
 const DEFAULT_VALUES = {
@@ -60,6 +64,7 @@ const DEFAULT_VALUES = {
   zt1PaletteOutputPath: 'output-zt1/icflion.pal',
   frameOffsetX: '22',
   frameOffsetY: '16',
+  duplicatePaletteSubtypeDirPath: '',
 };
 
 /** @type {{ heading: string, keys: string[] }[]} */
@@ -76,6 +81,10 @@ const CONFIG_SECTIONS = [
       'frameOffsetY',
     ],
   },
+  {
+    heading: '; Duplicate palette',
+    keys: ['duplicatePaletteSubtypeDirPath'],
+  },
 ];
 
 const REQUIRED_ZT1_TO_PNG = ['zt1SourceDirPath', 'pngOutputPath'];
@@ -88,6 +97,8 @@ const REQUIRED_PNG_TO_ZT1_BASE = [
 ];
 
 const REQUIRED_PNG_TO_ZT1_LAUNCHER = ['frameOffsetX', 'frameOffsetY'];
+
+const REQUIRED_DUPLICATE_PALETTE = ['duplicatePaletteSubtypeDirPath'];
 
 function configFileExists() {
   return fs.existsSync(CONFIG_PATH);
@@ -429,6 +440,31 @@ function validateEmbeddedPalettePath(raw) {
   return s;
 }
 
+function loadAndValidateForDuplicatePalette() {
+  const values = validateAndLoad(REQUIRED_DUPLICATE_PALETTE);
+  const subtypeDirAbs = resolveProjectRelativePath(
+    values.duplicatePaletteSubtypeDirPath,
+    'duplicatePaletteSubtypeDirPath'
+  );
+  if (!fs.existsSync(subtypeDirAbs)) {
+    throw userError(
+      `duplicatePaletteSubtypeDirPath must be an existing folder. Not found:\n${subtypeDirAbs}`
+    );
+  }
+  const st = fs.statSync(subtypeDirAbs);
+  if (!st.isDirectory()) {
+    throw userError(
+      `duplicatePaletteSubtypeDirPath must be a directory, not a file:\n${subtypeDirAbs}`
+    );
+  }
+  return {
+    values,
+    subtypeDirAbs,
+    entityRootAbs: path.dirname(subtypeDirAbs),
+    subtypeName: path.basename(subtypeDirAbs),
+  };
+}
+
 function loadAndValidateForPngToZt1() {
   const required = [...REQUIRED_PNG_TO_ZT1_BASE];
   if (isLauncherMode()) {
@@ -484,6 +520,7 @@ module.exports = {
   REQUIRED_ZT1_TO_PNG,
   REQUIRED_PNG_TO_ZT1_BASE,
   REQUIRED_PNG_TO_ZT1_LAUNCHER,
+  REQUIRED_DUPLICATE_PALETTE,
   configFileExists,
   isConfigEditable,
   createConfigFileIfMissing,
@@ -491,4 +528,5 @@ module.exports = {
   resolveProjectRelativePath,
   loadAndValidateForZt1ToPng,
   loadAndValidateForPngToZt1,
+  loadAndValidateForDuplicatePalette,
 };

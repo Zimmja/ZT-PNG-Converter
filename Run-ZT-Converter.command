@@ -47,9 +47,10 @@ while true; do
   echo "ZT PNG Converter"
   echo "  1  ZT1 to PNG"
   echo "  2  PNG to ZT1"
+  echo "  3  Duplicate palette"
   echo "  Q  Quit"
   echo ""
-  read -rp "Enter choice (1, 2, or Q): " zt_choice
+  read -rp "Enter choice (1, 2, 3, or Q): " zt_choice
   zt_choice_lc=$(printf '%s' "$zt_choice" | tr '[:upper:]' '[:lower:]')
   case "$zt_choice_lc" in
     1)
@@ -60,6 +61,10 @@ while true; do
     2)
       export ZT_CONVERTER_FROM_LAUNCHER=1
       node "$DIR/src/pngToZt1Assets.js"
+      prompt_restart_or_close_terminal
+      ;;
+    3)
+      node "$DIR/src/duplicatePalette.js"
       prompt_restart_or_close_terminal
       ;;
     q)

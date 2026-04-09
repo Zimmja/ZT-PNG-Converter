@@ -6,11 +6,11 @@ These files are cumbersome and difficult to edit effectively. The purpose of thi
 <h5>REQUIREMENTS</h5>
 <ul>
 <li><strong>Node.js</strong> — Install a current LTS release from <a href="https://nodejs.org/">nodejs.org</a>. The scripts use only built-in Node modules (<code>fs</code>, <code>path</code>, <code>zlib</code>); no <code>npm install</code> is required.</li>
-<li><strong>PATH</strong> — The <code>node</code> command must work in a terminal (macOS/Linux) or Command Prompt (Windows). If the GUI launcher says Node is missing, fix your Node install or PATH, or run the scripts manually: <code>node src/pngToZt1Assets.js</code> or <code>node src/zt1GraphicToPng.js</code> from the project root folder.</li>
+<li><strong>PATH</strong> — The <code>node</code> command must work in a terminal (macOS/Linux) or Command Prompt (Windows). If the GUI launcher says Node is missing, fix your Node install or PATH, or run the scripts manually from the project root folder: <code>node src/zt1GraphicToPng.js</code> (ZT1 → PNG), <code>node src/pngToZt1Assets.js</code> (PNG → ZT1), or <code>node src/duplicatePalette.js</code> (duplicate palette for a subtype; see <code>Config.txt</code>).</li>
 </ul>
 
 <h5>RUNNING FROM THE GUI</h5>
 <ul>
-<li><strong>macOS:</strong> Double-click <code>Run-ZT-Converter.command</code>. Terminal opens; pick <em>PNG → ZT1</em> or <em>ZT1 → PNG</em>. If Finder warns that the file cannot be verified, use right-click → Open the first time.</li>
-<li><strong>Windows:</strong> Double-click <code>Run-ZT-Converter.bat</code> and enter <code>1</code> or <code>2</code> at the prompt.</li>
+<li><strong>macOS:</strong> Double-click <code>Run-ZT-Converter.command</code>. Terminal opens; pick <em>ZT1 to PNG</em>, <em>PNG to ZT1</em>, or <em>Duplicate palette</em>. If Finder warns that the file cannot be verified, use right-click → Open the first time.</li>
+<li><strong>Windows:</strong> Double-click <code>Run-ZT-Converter.bat</code> and enter <code>1</code>, <code>2</code>, or <code>3</code> at the prompt.</li>
 </ul>

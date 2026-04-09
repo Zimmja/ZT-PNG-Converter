@@ -15,18 +15,24 @@ echo.
 echo ZT PNG Converter
 echo   1  ZT1 to PNG
 echo   2  PNG to ZT1
+echo   3  Duplicate palette
 echo   Q  Quit
 echo.
 set "c="
-set /p "c=Enter choice (1, 2, or Q): "
+set /p "c=Enter choice (1, 2, 3, or Q): "
 if /i "%c%"=="1" goto run_zt1_to_png
 if /i "%c%"=="2" goto run_png_to_zt1
+if /i "%c%"=="3" goto run_duplicate_palette
 if /i "%c%"=="q" exit /b 0
 goto menu
 
 :run_png_to_zt1
 set "ZT_CONVERTER_FROM_LAUNCHER=1"
 node "%~dp0src\pngToZt1Assets.js"
+goto done
+
+:run_duplicate_palette
+node "%~dp0src\duplicatePalette.js"
 goto done
 
 :run_zt1_to_png

@@ -9,3 +9,6 @@ zt1GraphicOutputPath: "output-zt1/N" ; ZT graphic output path: relative to proje
 zt1PaletteOutputPath: "output-zt1/icflion.pal" ; Palette output path: relative to project root; .pal file written on disk (.pal optional).
 frameOffsetX: "22" ; Animation="93", Adoption menu button="22", Animal facts image="89"
 frameOffsetY: "16" ; Animation="63", Adoption menu button="16", Animal facts image="97"
+
+; Duplicate palette
+duplicatePaletteSubtypeDirPath: "" ; Duplicate palette: relative path to a subtype folder (e.g. duplicate/y); a .pal file must sit in the parent folder next to this folder.
