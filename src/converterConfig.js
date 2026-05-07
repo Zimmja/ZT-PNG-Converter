@@ -53,6 +53,18 @@ const CONFIG_KEY_DEFS = {
     description:
       'Duplicate palette: relative path to a subtype folder (e.g. duplicate/y); a .pal file must sit in the parent folder next to this folder.',
   },
+  duplicateDirectory: {
+    description:
+      'Convert directory to duplicate: relative path to the mod folder to rewrite (e.g. Mod_zimfences).',
+  },
+  dirName: {
+    description:
+      'Convert directory to duplicate: original item/folder name substring to replace (e.g. woodslat).',
+  },
+  dupName: {
+    description:
+      'Convert directory to duplicate: new name to substitute for dirName in paths and folder names (e.g. duplicateWoodslat).',
+  },
 };
 
 const DEFAULT_VALUES = {
@@ -65,6 +77,9 @@ const DEFAULT_VALUES = {
   frameOffsetX: '22',
   frameOffsetY: '16',
   duplicatePaletteSubtypeDirPath: '',
+  duplicateDirectory: '',
+  dirName: '',
+  dupName: '',
 };
 
 /** @type {{ heading: string, keys: string[] }[]} */
@@ -85,6 +100,10 @@ const CONFIG_SECTIONS = [
     heading: '; Duplicate palette',
     keys: ['duplicatePaletteSubtypeDirPath'],
   },
+  {
+    heading: '; Convert directory to duplicate',
+    keys: ['duplicateDirectory', 'dirName', 'dupName'],
+  },
 ];
 
 const REQUIRED_ZT1_TO_PNG = ['zt1SourceDirPath', 'pngOutputPath'];
@@ -99,6 +118,12 @@ const REQUIRED_PNG_TO_ZT1_BASE = [
 const REQUIRED_PNG_TO_ZT1_LAUNCHER = ['frameOffsetX', 'frameOffsetY'];
 
 const REQUIRED_DUPLICATE_PALETTE = ['duplicatePaletteSubtypeDirPath'];
+
+const REQUIRED_CONVERT_DIRECTORY_TO_DUPLICATE = [
+  'duplicateDirectory',
+  'dirName',
+  'dupName',
+];
 
 function configFileExists() {
   return fs.existsSync(CONFIG_PATH);
@@ -465,6 +490,53 @@ function loadAndValidateForDuplicatePalette() {
   };
 }
 
+/**
+ * @param {string} raw
+ * @param {string} label
+ */
+function validateDirNameOrDupName(raw, label) {
+  const s = String(raw).trim();
+  if (s === '') {
+    throw userError(`${label} in Config.txt must not be empty.`);
+  }
+  if (s.includes('/') || s.includes('\\') || s.includes('..')) {
+    throw userError(
+      `${label} in Config.txt must be a single path segment (no slashes or "..").`
+    );
+  }
+  return s;
+}
+
+function loadAndValidateForConvertDirectoryToDuplicate() {
+  const values = validateAndLoad(REQUIRED_CONVERT_DIRECTORY_TO_DUPLICATE);
+  const duplicateDirAbs = resolveProjectRelativePath(
+    values.duplicateDirectory,
+    'duplicateDirectory'
+  );
+  if (!fs.existsSync(duplicateDirAbs)) {
+    throw userError(
+      `duplicateDirectory must be an existing folder. Not found:\n${duplicateDirAbs}`
+    );
+  }
+  const st = fs.statSync(duplicateDirAbs);
+  if (!st.isDirectory()) {
+    throw userError(
+      `duplicateDirectory must be a directory, not a file:\n${duplicateDirAbs}`
+    );
+  }
+  const dirName = validateDirNameOrDupName(values.dirName, 'dirName');
+  const dupName = validateDirNameOrDupName(values.dupName, 'dupName');
+  if (dirName === dupName) {
+    throw userError('dirName and dupName in Config.txt must be different.');
+  }
+  return {
+    values,
+    duplicateDirAbs,
+    dirName,
+    dupName,
+  };
+}
+
 function loadAndValidateForPngToZt1() {
   const required = [...REQUIRED_PNG_TO_ZT1_BASE];
   if (isLauncherMode()) {
@@ -521,6 +593,7 @@ module.exports = {
   REQUIRED_PNG_TO_ZT1_BASE,
   REQUIRED_PNG_TO_ZT1_LAUNCHER,
   REQUIRED_DUPLICATE_PALETTE,
+  REQUIRED_CONVERT_DIRECTORY_TO_DUPLICATE,
   configFileExists,
   isConfigEditable,
   createConfigFileIfMissing,
@@ -529,4 +602,5 @@ module.exports = {
   loadAndValidateForZt1ToPng,
   loadAndValidateForPngToZt1,
   loadAndValidateForDuplicatePalette,
+  loadAndValidateForConvertDirectoryToDuplicate,
 };

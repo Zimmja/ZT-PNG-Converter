@@ -12,3 +12,7 @@ frameOffsetY: "16" ; Animation="63", Adoption menu button="16", Animal facts ima
 
 ; Duplicate palette
 duplicatePaletteSubtypeDirPath: "" ; Duplicate palette: relative path to a subtype folder (e.g. duplicate/y); a .pal file must sit in the parent folder next to this folder.
+
+duplicateDirectory: "" ; Convert directory to duplicate: relative path to the mod folder to rewrite (e.g. Mod_zimfences).
+dirName: "" ; Convert directory to duplicate: original item/folder name substring to replace (e.g. woodslat).
+dupName: "" ; Convert directory to duplicate: new name to substitute for dirName in paths and folder names (e.g. duplicateWoodslat).
